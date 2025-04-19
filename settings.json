@@ -1,14 +1,14 @@
 {
   "bot-account": {
-    "username": "bot",
-    "password": "your_password",
+    "username": "afkbot1234",
+    "password": "",
     "type": "microsoft"
   },
 
   "server": {
-    "ip": "localhost",
+    "ip": "casiovnsmp.mcsh.io",
     "port": 25565,
-    "version": "1.19.3"
+    "version": "1.12.2"
   },
 
   "position": {
@@ -20,8 +20,8 @@
 
   "utils": {
     "auto-auth": {
-      "enabled": false,
-      "password": "12345678"
+      "enabled": true,
+      "password": "69696969"
     },
 
     "anti-afk": {
