@@ -2,7 +2,7 @@
   "bot-account": {
     "username": "afkbot1234",
     "password": "",
-    "type": "microsoft"
+    "type": "mojang"
   },
 
   "server": {
