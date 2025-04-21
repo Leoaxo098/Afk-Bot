@@ -4,7 +4,7 @@
   "description": "Afk bot for minecraft servers.",
   "main": "bot.js",
   "scripts": {
-    "start": "npm install && node bot.js",
+    "start": "npm install && if [ $? -eq 0 ]; then node bot.js; fi",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "urFate",
