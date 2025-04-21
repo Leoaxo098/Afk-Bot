@@ -43,12 +43,14 @@ function createBot() {
         return
     }
 
-    if (bot) {
+    if (bot && bot.settings && bot.pathfinder) {
         bot.loadPlugin(pathfinder);
         const mcData = require('minecraft-data')(bot.version);
-        const defaultMove = new Movements(bot, mcData);
-        bot.settings.colorsEnabled = false;
-        bot.pathfinder.setMovements(defaultMove);
+        if (mcData) {
+            const defaultMove = new Movements(bot, mcData);
+            if(defaultMove) bot.pathfinder.setMovements(defaultMove);
+        }
+        if (bot.settings) bot.settings.colorsEnabled = false;
     }
 
 
