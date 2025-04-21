@@ -8,7 +8,7 @@ console.log('config', config)
 const webhook = new Webhook(config.webhook);
 const loggers = require('./logging.js');
 if (!config) {
-    throw new Error("Could not load settings.json");
+        throw new Error("Could not load settings.json");
 }
 
 const logger = loggers.logger;
@@ -59,15 +59,6 @@ function createBot() {
             content: 'Bot joined to the server',
             username: 'Bot Status',
         });
-
-        // Send status every 1 minute
-        setInterval(() => {
-            const pos = bot.entity.position;
-            webhook.send({
-                content: `Bot is online. Current position: x: ${pos.x.toFixed(2)}, y: ${pos.y.toFixed(2)}, z: ${pos.z.toFixed(2)}`,
-                username: 'Bot Status',
-            });
-        }, 60000); // 60000 ms = 1 minute
 
         if (config.utils['auto-auth'].enabled) {
             logger.info('Started auto-auth module');
@@ -158,11 +149,7 @@ function createBot() {
         if (config.utils['chat-log']) {
             logger.info(`<${username}> ${message}`);
         }
-         if (username === bot.username) return;
-        webhook.send({
-            content: `<${username}> ${message}`,
-            username: 'Minecraft Chat Log',
-        });
+         if (username === bot.username) return;        
     });
 
     bot.on('goal_reached', () => {
@@ -177,19 +164,11 @@ function createBot() {
         logger.warn(
             `Bot has been died and was respawned at ${bot.entity.position}`
         );
-        webhook.send({
-            content: `Bot has been died and was respawned at ${bot.entity.position}`,
-            username: 'Bot Status',
-        });
     });
 
     if (config.utils['auto-reconnect']) {
         bot.on('end', () => {
             logger.info("Bot disconnected, reconnecting...")
-            webhook.send({
-                content: "Bot disconnected, reconnecting...",
-                username: 'Bot Status',
-            });
             setTimeout(() => {
                 createBot();
             }, config.utils['auto-reconnect-delay']);
@@ -204,19 +183,11 @@ function createBot() {
         reasonText = reasonText.replace(/§./g, '');
 
         logger.warn(`Bot was kicked from the server. Reason: ${reasonText}`)
-        webhook.send({
-            content: `Bot was kicked from the server. Reason: ${reasonText}`,
-            username: 'Bot Status',
-        });
     }
     );
 
     bot.on('error', (err) => {
         logger.error(`${err.message}`);
-        webhook.send({
-            content: `Bot has an error: ${err.message}`,
-            username: 'Bot Status',
-        });
     });
 }
 
