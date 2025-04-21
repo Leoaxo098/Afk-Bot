@@ -42,6 +42,15 @@ function createBot() {
             username: 'Bot Status',
         });
 
+        // Send status every 1 minute
+        setInterval(() => {
+            const pos = bot.entity.position;
+            webhook.send({
+                content: `Bot is online. Current position: x: ${pos.x.toFixed(2)}, y: ${pos.y.toFixed(2)}, z: ${pos.z.toFixed(2)}`,
+                username: 'Bot Status',
+            });
+        }, 60000); // 60000 ms = 1 minute
+
         if (config.utils['auto-auth'].enabled) {
             logger.info('Started auto-auth module');
 
@@ -131,6 +140,11 @@ function createBot() {
         if (config.utils['chat-log']) {
             logger.info(`<${username}> ${message}`);
         }
+         if (username === bot.username) return;
+        webhook.send({
+            content: `<${username}> ${message}`,
+            username: 'Minecraft Chat Log',
+        });
     });
 
     bot.on('goal_reached', () => {
