@@ -1,6 +1,4 @@
-const { execSync } = require('child_process');
-execSync('npm install', { stdio: 'inherit' });
-const mineflayer = require('mineflayer');
+ const mineflayer = require('mineflayer');
 const { Webhook } = require('discord-webhook-node');
 const Movements = require('mineflayer-pathfinder').Movements;
 const pathfinder = require('mineflayer-pathfinder').pathfinder;
@@ -8,6 +6,10 @@ const { GoalBlock, GoalXZ } = require('mineflayer-pathfinder').goals;
 const config = require('./settings.json');
 const webhook = new Webhook(config.webhook);
 const loggers = require('./logging.js');
+if (!config) {
+    throw new Error("Could not load settings.json");
+}
+
 const logger = loggers.logger;
 const express = require('express');
 const app = express();
@@ -182,7 +184,7 @@ function createBot() {
 
     bot.on('kicked', (reason) => {
         let reasonText = JSON.parse(reason).text;
-        if (reasonText === '') {
+        if (reasonText === '' && JSON.parse(reason).extra) {
             reasonText = JSON.parse(reason).extra[0].text
         }
         reasonText = reasonText.replace(/§./g, '');
