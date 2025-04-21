@@ -11,7 +11,7 @@
   "license": "MIT",
   "dependencies": {
     "log4js": "^6.7.1",
-    "discord-webhook-node": "^1.1.8",
+    "discord-webhook-node": "^1.1.7",
     "express": "^4.18.2",
     "minecraft-data": "^3.27.0",
     "mineflayer": "^4.8.1",
