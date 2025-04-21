@@ -15,5 +15,6 @@
     "minecraft-data": "^3.27.0",
     "mineflayer": "^4.8.1",
     "mineflayer-pathfinder": "^2.4.2"
+    "discord-webhook-node": "^1.1.8",
   }
 }
