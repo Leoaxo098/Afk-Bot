@@ -25,15 +25,23 @@ app.listen(port, () => {
 });
 
 function createBot() {
-    const bot = mineflayer.createBot({
-        username: config['bot-account']['username'],
-        password: config['bot-account']['password'],
-        auth: config['bot-account']['type'],
-        host: config.server.ip,
-        port: config.server.port,
-        version: config.server.version,
-    });
-    console.log('bot', bot)
+    const options = {
+        host: config.server.ip,                    
+        port: config.server.port,                 
+        version: config.server.version,              
+        username: config['bot-account']['username'],       
+        password: config['bot-account']['password'],       
+        auth: config['bot-account']['type']             
+    }
+
+    console.log('Bot creating with options:', options)
+    try {
+        var bot = mineflayer.createBot(options)
+        console.log('bot', bot)
+    } catch (err) {
+        console.error("Error creating bot:", err)
+        return
+    }
 
     if (bot) {
         bot.loadPlugin(pathfinder);
