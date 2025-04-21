@@ -1,3 +1,5 @@
+const { execSync } = require('child_process');
+execSync('npm install', { stdio: 'inherit' });
 const mineflayer = require('mineflayer');
 const { Webhook } = require('discord-webhook-node');
 const Movements = require('mineflayer-pathfinder').Movements;
