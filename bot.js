@@ -4,6 +4,7 @@ const Movements = require('mineflayer-pathfinder').Movements;
 const pathfinder = require('mineflayer-pathfinder').pathfinder;
 const { GoalBlock, GoalXZ } = require('mineflayer-pathfinder').goals;
 const config = require('./settings.json');
+console.log('config', config)
 const webhook = new Webhook(config.webhook);
 const loggers = require('./logging.js');
 if (!config) {
@@ -32,14 +33,19 @@ function createBot() {
         port: config.server.port,
         version: config.server.version,
     });
+    console.log('bot', bot)
 
-    bot.loadPlugin(pathfinder);
-    const mcData = require('minecraft-data')(bot.version);
-    const defaultMove = new Movements(bot, mcData);
-    bot.settings.colorsEnabled = false;
-    bot.pathfinder.setMovements(defaultMove);
+    if (bot) {
+        bot.loadPlugin(pathfinder);
+        const mcData = require('minecraft-data')(bot.version);
+        const defaultMove = new Movements(bot, mcData);
+        bot.settings.colorsEnabled = false;
+        bot.pathfinder.setMovements(defaultMove);
+    }
+
 
     bot.once('spawn', () => {
+        console.log('Bot created correctly')
         logger.info("Bot joined to the server");
         webhook.send({
             content: 'Bot joined to the server',
