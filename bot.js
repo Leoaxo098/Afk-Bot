@@ -32,10 +32,10 @@ function createBot() {
         auth: process.env.BOT_TYPE || 'mojang'            
     }
 
-    console.log('Bot creating with options:', options)
+    // console.log('Bot creating with options:', options)
     try {
         var bot = mineflayer.createBot(options)
-        console.log('bot', bot)
+        // console.log('bot', bot)
     } catch (err) {
         console.error("Error creating bot:", err)
         return
