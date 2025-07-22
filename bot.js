@@ -1,15 +1,13 @@
- const mineflayer = require('mineflayer');
+const mineflayer = require('mineflayer');
 const { Webhook } = require('discord-webhook-node');
 const Movements = require('mineflayer-pathfinder').Movements;
 const pathfinder = require('mineflayer-pathfinder').pathfinder;
 const { GoalBlock, GoalXZ } = require('mineflayer-pathfinder').goals;
-const config = require('./settings.json');
-console.log('config', config)
-const webhook = new Webhook(config.webhook);
+
+require('dotenv').config();
+
+const webhook = new Webhook(process.env.WEBHOOK_URL);
 const loggers = require('./logging.js');
-if (!config) {
-        throw new Error("Could not load settings.json");
-}
 
 const logger = loggers.logger;
 const express = require('express');
@@ -26,12 +24,12 @@ app.listen(port, () => {
 
 function createBot() {
     const options = {
-        host: config.server.ip,                    
-        port: config.server.port,                 
-        version: config.server.version,              
-        username: config['bot-account']['username'],       
-        password: config['bot-account']['password'],       
-        auth: config['bot-account']['type']             
+        host: process.env.SERVER_IP,                    
+        port: process.env.SERVER_PORT ? parseInt(process.env.SERVER_PORT) : 25565,                 
+        version: process.env.SERVER_VERSION || '1.12.2',              
+        username: process.env.BOT_USERNAME,       
+        password: process.env.BOT_PASSWORD,       
+        auth: process.env.BOT_TYPE || 'mojang'            
     }
 
     console.log('Bot creating with options:', options)
@@ -62,10 +60,13 @@ function createBot() {
             username: 'Bot Status',
         });
 
-        if (config.utils['auto-auth'].enabled) {
+        // Read these settings from environment variables if needed, or keep them in settings.json if not sensitive
+        // const config = require('./settings.json'); 
+
+        if (process.env.AUTO_AUTH_ENABLED === 'true') {
             logger.info('Started auto-auth module');
 
-            let password = config.utils['auto-auth'].password;
+            let password = process.env.AUTO_AUTH_PASSWORD;
             setTimeout(() => {
                 bot.chat(`/register ${password} ${password}`);
                 bot.chat(`/login ${password}`);
@@ -74,13 +75,13 @@ function createBot() {
             logger.info(`Authentication commands executed`);
         }
 
-        if (config.utils['chat-messages'].enabled) {
+        if (process.env.CHAT_MESSAGES_ENABLED === 'true') {
             logger.info('Started chat-messages module');
 
-            let messages = config.utils['chat-messages']['messages'];
+            let messages = process.env.CHAT_MESSAGES ? JSON.parse(process.env.CHAT_MESSAGES) : [];
 
-            if (config.utils['chat-messages'].repeat) {
-                let delay = config.utils['chat-messages']['repeat-delay'];
+            if (process.env.CHAT_MESSAGES_REPEAT === 'true') {
+                let delay = process.env.CHAT_MESSAGES_REPEAT_DELAY ? parseInt(process.env.CHAT_MESSAGES_REPEAT_DELAY) : 60;
                 let i = 0;
 
                 setInterval(() => {
@@ -97,27 +98,32 @@ function createBot() {
             }
         }
 
-        const pos = config.position;
+        // Read position from environment variables if needed, or keep them in settings.json
+        // const pos = config.position;
 
-        if (config.position.enabled) {
+        if (process.env.POSITION_ENABLED === 'true') {
+             const posX = process.env.POSITION_X ? parseInt(process.env.POSITION_X) : 0;
+             const posY = process.env.POSITION_Y ? parseInt(process.env.POSITION_Y) : 0;
+             const posZ = process.env.POSITION_Z ? parseInt(process.env.POSITION_Z) : 0;
+
             logger.info(
-                `Starting moving to target location (${pos.x}, ${pos.y}, ${pos.z})`
+                `Starting moving to target location (${posX}, ${posY}, ${posZ})`
             );
-            bot.pathfinder.setGoal(new GoalBlock(pos.x, pos.y, pos.z));
+            bot.pathfinder.setGoal(new GoalBlock(posX, posY, posZ));
         }
 
-        if (config.utils['anti-afk'].enabled) {
-            if (config.utils['anti-afk'].sneak) {
+        if (process.env.ANTI_AFK_ENABLED === 'true') {
+            if (process.env.ANTI_AFK_SNEAK === 'true') {
                 bot.setControlState('sneak', true);
             }
 
-            if (config.utils['anti-afk'].jump) {
+            if (process.env.ANTI_AFK_JUMP === 'true') {
                 bot.setControlState('jump', true);
             }
 
-            if (config.utils['anti-afk']['hit'].enabled) {
-                let delay = config.utils['anti-afk']['hit']['delay'];
-                let attackMobs = config.utils['anti-afk']['hit']['attack-mobs']
+            if (process.env.ANTI_AFK_HIT_ENABLED === 'true') {
+                let delay = process.env.ANTI_AFK_HIT_DELAY ? parseInt(process.env.ANTI_AFK_HIT_DELAY) : 1000;
+                let attackMobs = process.env.ANTI_AFK_HIT_ATTACK_MOBS === 'true';
 
                 setInterval(() => {
                     if (attackMobs) {
@@ -134,28 +140,28 @@ function createBot() {
                 }, delay);
             }
 
-            if (config.utils['anti-afk'].rotate) {
+            if (process.env.ANTI_AFK_ROTATE === 'true') {
                 setInterval(() => {
                     bot.look(bot.entity.yaw + 1, bot.entity.pitch, true);
                 }, 100);
             }
 
-            if (config.utils['anti-afk']['circle-walk'].enabled) {
-                let radius = config.utils['anti-afk']['circle-walk']['radius']
+            if (process.env.ANTI_AFK_CIRCLE_WALK_ENABLED === 'true') {
+                let radius = process.env.ANTI_AFK_CIRCLE_WALK_RADIUS ? parseInt(process.env.ANTI_AFK_CIRCLE_WALK_RADIUS) : 2;
                 circleWalk(bot, radius);
             }
         }
     });
 
     bot.on('chat', (username, message) => {
-        if (config.utils['chat-log']) {
+        if (process.env.CHAT_LOG === 'true') {
             logger.info(`<${username}> ${message}`);
         }
          if (username === bot.username) return;        
     });
 
     bot.on('goal_reached', () => {
-        if (config.position.enabled) {
+        if (process.env.POSITION_ENABLED === 'true') {
             logger.info(
                 `Bot arrived to target location. ${bot.entity.position}`
             );
@@ -168,12 +174,12 @@ function createBot() {
         );
     });
 
-    if (config.utils['auto-reconnect']) {
+    if (process.env.AUTO_RECONNECT === 'true') {
         bot.on('end', () => {
             logger.info("Bot disconnected, reconnecting...")
             setTimeout(() => {
                 createBot();
-            }, config.utils['auto-reconnect-delay']);
+            }, process.env.AUTO_RECONNECT_DELAY ? parseInt(process.env.AUTO_RECONNECT_DELAY) : 5000);
         });
     }
 
