@@ -5,13 +5,14 @@
   "main": "bot.js",
   "scripts": {
     "start": "npm install && if [ $? -eq 0 ]; then node bot.js; fi",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo "Error: no test specified" && exit 1"
   },
   "author": "urFate",
   "license": "MIT",
   "dependencies": {
+    "dotenv": "^16.0.0",
     "log4js": "^6.7.1",
-    "discord-webhook-node": "^1.1.7",
+    "discord-webhook-node": "^1.1.8",
     "express": "^4.18.2",
     "minecraft-data": "^3.27.0",
     "mineflayer": "^4.8.1",
