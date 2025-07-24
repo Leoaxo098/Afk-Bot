@@ -54,6 +54,12 @@ function createBot() {
 
     // Add logging before the problematic line
     bot.on('game_state_changed', (state) => {
+        console.log('Game state changed to:', state);
+        console.log('bot.game:', bot.game);
+        console.log('bot.registry:', bot.registry);
+        if (bot.registry) {
+            console.log('bot.registry.dimensionsByName:', bot.registry.dimensionsByName);
+        }        
         if (state === 'respawn') {
             console.log('Attempting to access dimension data during respawn:');
             console.log('bot.game.dimension:', bot.game.dimension);
