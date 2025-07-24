@@ -3,6 +3,7 @@ const { Webhook } = require('discord-webhook-node');
 const Movements = require('mineflayer-pathfinder').Movements;
 const pathfinder = require('mineflayer-pathfinder').pathfinder;
 const { GoalBlock, GoalXZ } = require('mineflayer-pathfinder').goals;
+const { mineflayer: mineflayerViewer } = require('prismarine-viewer');
 
 require('dotenv').config();
 
@@ -26,7 +27,7 @@ function createBot() {
     const options = {
         host: process.env.SERVER_IP,                    
         port: process.env.SERVER_PORT ? parseInt(process.env.SERVER_PORT) : 25565,                 
-        version: process.env.SERVER_VERSION || '1.12.2',              
+        version: process.env.SERVER_VERSION || '1.19',              
         username: process.env.BOT_USERNAME,       
         password: process.env.BOT_PASSWORD,       
         auth: process.env.BOT_TYPE || 'mojang'            
@@ -59,6 +60,8 @@ function createBot() {
             content: 'Bot joined to the server',
             username: 'Bot Status',
         });
+
+        mineflayerViewer(bot, { port: 3007, firstPerson: true });
 
         // Read these settings from environment variables if needed, or keep them in settings.json if not sensitive
         // const config = require('./settings.json'); 
