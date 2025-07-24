@@ -52,6 +52,17 @@ function createBot() {
         if (bot.settings) bot.settings.colorsEnabled = false;
     }
 
+    // Add logging before the problematic line
+    bot.on('game_state_changed', (state) => {
+        if (state === 'respawn') {
+            console.log('Attempting to access dimension data during respawn:');
+            console.log('bot.game.dimension:', bot.game.dimension);
+            console.log('bot.registry:', bot.registry);
+            if (bot.registry) {
+                console.log('bot.registry.dimensionsByName:', bot.registry.dimensionsByName);
+            }
+        }
+    });
 
     bot.once('spawn', () => {
         console.log('Bot created correctly')
