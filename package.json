@@ -18,6 +18,7 @@
     "minecraft-data": "^3.27.0",
     "mineflayer": "latest",
     "mineflayer-pathfinder": "^2.4.2",
-    "prismarine-viewer": "^1.28.0"
+    "prismarine-viewer": "^1.28.0",
+    "canvas": "^latest"
   }
 }
