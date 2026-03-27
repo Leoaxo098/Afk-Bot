@@ -202,7 +202,8 @@ app.get('/login', (req, res) => {
     <h1>Minecraft Bot</h1>
     <p>Enter your password to access the dashboard</p>
   </div>
-  ${req.query.error ? '<div class="error">Incorrect password. Try again.</div>' : ''}
+  <div id="errorBox" style="display:none" class="error">Incorrect password. Try again.</div>
+  <div id="networkErrorBox" style="display:none" class="error">Network or crypto error. Check console.</div>
   <div>
     <label for="pw">Password</label>
     <input type="password" id="pw" placeholder="••••••••" autofocus autocomplete="current-password">
@@ -210,20 +211,94 @@ app.get('/login', (req, res) => {
   </div>
 </div>
 <script>
+// SHA256 implementation that works in non-secure contexts (http://ip:port)
+// Falls back to built-in crypto.subtle when available
 async function sha256(str) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    // Try native crypto.subtle first (works on https/localhost)
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    }
+    
+    // Fallback: Pure JavaScript SHA256 implementation
+    function rotateRight(n, x) { return (x >>> n) | (x << (32 - n)); }
+    function choose(x, y, z) { return (x & y) ^ (~x & z); }
+    function majority(x, y, z) { return (x & y) ^ (x & z) ^ (y & z); }
+    function sha256Sigma0(x) { return rotateRight(2, x) ^ rotateRight(13, x) ^ rotateRight(22, x); }
+    function sha256Sigma1(x) { return rotateRight(6, x) ^ rotateRight(11, x) ^ rotateRight(25, x); }
+    function sha256Gamma0(x) { return rotateRight(7, x) ^ rotateRight(18, x) ^ (x >>> 3); }
+    function sha256Gamma1(x) { return rotateRight(17, x) ^ rotateRight(19, x) ^ (x >>> 10); }
+    
+    const K = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+    ];
+    
+    let H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    let msg = unescape(encodeURIComponent(str));
+    let len = msg.length;
+    let words = [];
+    for (let i = 0; i < len; i++) {
+        words[i >> 2] |= (msg.charCodeAt(i) & 0xff) << (24 - (i % 4) * 8);
+    }
+    words[len >> 2] |= 0x80 << (24 - (len % 4) * 8);
+    words[((len + 64 >> 9) << 4) + 15] = len * 8;
+    
+    for (let i = 0; i < words.length; i += 16) {
+        let w = new Array(64);
+        for (let j = 0; j < 16; j++) w[j] = words[i + j] || 0;
+        for (let j = 16; j < 64; j++) {
+            w[j] = (sha256Gamma1(w[j - 2]) + w[j - 7] + sha256Gamma0(w[j - 15]) + w[j - 16]) | 0;
+        }
+        let a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+        for (let j = 0; j < 64; j++) {
+            let T1 = (h + sha256Sigma1(e) + choose(e, f, g) + K[j] + w[j]) | 0;
+            let T2 = (sha256Sigma0(a) + majority(a, b, c)) | 0;
+            h = g; g = f; f = e; e = (d + T1) | 0; d = c; c = b; b = a; a = (T1 + T2) | 0;
+        }
+        H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+        H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+    }
+    return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
 }
+
 async function doLogin() {
-    const hash = await sha256(document.getElementById('pw').value);
-    const res  = await fetch('/login', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ hash })
-    });
-    const data = await res.json();
-    if (data.ok) location.href = '/';
-    else location.href = '/login?error=1';
+    const pw = document.getElementById('pw').value;
+    if (!pw) return;
+    
+    document.getElementById('errorBox').style.display = 'none';
+    document.getElementById('networkErrorBox').style.display = 'none';
+    document.getElementById('loginBtn').disabled = true;
+    document.getElementById('loginBtn').textContent = 'Signing in...';
+    
+    try {
+        const hash = await sha256(pw);
+        const res  = await fetch('/login', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ hash })
+        });
+        const data = await res.json();
+        if (data.ok) {
+            location.href = '/';
+        } else {
+            document.getElementById('errorBox').style.display = 'block';
+            document.getElementById('pw').value = '';
+            document.getElementById('pw').focus();
+        }
+    } catch (err) {
+        console.error('Login error:', err);
+        document.getElementById('networkErrorBox').style.display = 'block';
+    } finally {
+        document.getElementById('loginBtn').disabled = false;
+        document.getElementById('loginBtn').textContent = 'Sign In';
+    }
 }
 document.getElementById('loginBtn').addEventListener('click', doLogin);
 document.getElementById('pw').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
@@ -457,6 +532,7 @@ async function sendMessage() {
             headers: {'Content-Type':'application/json'},
             body:    JSON.stringify({ message: msg })
         });
+ });
         if (res.status === 401) { location.href = '/login'; return; }
         const data = await res.json();
         if (!data.ok) addMsg({ ts: Date.now(), type: 'system', message: '⚠ ' + (data.error || 'Failed to send') });
