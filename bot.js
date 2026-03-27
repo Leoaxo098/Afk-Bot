@@ -121,9 +121,6 @@ function startScoreboardReporter(bot) {
 const app  = express();
 const port = process.env.PORT || 3000;
 
-// Trust proxy headers if behind reverse proxy (Nginx, Apache, etc.)
-app.set('trust proxy', 1);
-
 const WEB_PASSWORD      = process.env.WEB_PASSWORD || 'admin';
 const WEB_PASSWORD_HASH = crypto.createHash('sha256').update(WEB_PASSWORD).digest('hex');
 const sessions          = new Set();
@@ -202,8 +199,7 @@ app.get('/login', (req, res) => {
     <h1>Minecraft Bot</h1>
     <p>Enter your password to access the dashboard</p>
   </div>
-  <div id="errorBox" style="display:none" class="error">Incorrect password. Try again.</div>
-  <div id="networkErrorBox" style="display:none" class="error">Network or crypto error. Check console.</div>
+  ${req.query.error ? '<div class="error">Incorrect password. Try again.</div>' : ''}
   <div>
     <label for="pw">Password</label>
     <input type="password" id="pw" placeholder="••••••••" autofocus autocomplete="current-password">
@@ -211,94 +207,20 @@ app.get('/login', (req, res) => {
   </div>
 </div>
 <script>
-// SHA256 implementation that works in non-secure contexts (http://ip:port)
-// Falls back to built-in crypto.subtle when available
 async function sha256(str) {
-    // Try native crypto.subtle first (works on https/localhost)
-    if (typeof crypto !== 'undefined' && crypto.subtle) {
-        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-    }
-    
-    // Fallback: Pure JavaScript SHA256 implementation
-    function rotateRight(n, x) { return (x >>> n) | (x << (32 - n)); }
-    function choose(x, y, z) { return (x & y) ^ (~x & z); }
-    function majority(x, y, z) { return (x & y) ^ (x & z) ^ (y & z); }
-    function sha256Sigma0(x) { return rotateRight(2, x) ^ rotateRight(13, x) ^ rotateRight(22, x); }
-    function sha256Sigma1(x) { return rotateRight(6, x) ^ rotateRight(11, x) ^ rotateRight(25, x); }
-    function sha256Gamma0(x) { return rotateRight(7, x) ^ rotateRight(18, x) ^ (x >>> 3); }
-    function sha256Gamma1(x) { return rotateRight(17, x) ^ rotateRight(19, x) ^ (x >>> 10); }
-    
-    const K = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-    ];
-    
-    let H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
-    let msg = unescape(encodeURIComponent(str));
-    let len = msg.length;
-    let words = [];
-    for (let i = 0; i < len; i++) {
-        words[i >> 2] |= (msg.charCodeAt(i) & 0xff) << (24 - (i % 4) * 8);
-    }
-    words[len >> 2] |= 0x80 << (24 - (len % 4) * 8);
-    words[((len + 64 >> 9) << 4) + 15] = len * 8;
-    
-    for (let i = 0; i < words.length; i += 16) {
-        let w = new Array(64);
-        for (let j = 0; j < 16; j++) w[j] = words[i + j] || 0;
-        for (let j = 16; j < 64; j++) {
-            w[j] = (sha256Gamma1(w[j - 2]) + w[j - 7] + sha256Gamma0(w[j - 15]) + w[j - 16]) | 0;
-        }
-        let a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
-        for (let j = 0; j < 64; j++) {
-            let T1 = (h + sha256Sigma1(e) + choose(e, f, g) + K[j] + w[j]) | 0;
-            let T2 = (sha256Sigma0(a) + majority(a, b, c)) | 0;
-            h = g; g = f; f = e; e = (d + T1) | 0; d = c; c = b; b = a; a = (T1 + T2) | 0;
-        }
-        H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
-        H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
-    }
-    return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
-
 async function doLogin() {
-    const pw = document.getElementById('pw').value;
-    if (!pw) return;
-    
-    document.getElementById('errorBox').style.display = 'none';
-    document.getElementById('networkErrorBox').style.display = 'none';
-    document.getElementById('loginBtn').disabled = true;
-    document.getElementById('loginBtn').textContent = 'Signing in...';
-    
-    try {
-        const hash = await sha256(pw);
-        const res  = await fetch('/login', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ hash })
-        });
-        const data = await res.json();
-        if (data.ok) {
-            location.href = '/';
-        } else {
-            document.getElementById('errorBox').style.display = 'block';
-            document.getElementById('pw').value = '';
-            document.getElementById('pw').focus();
-        }
-    } catch (err) {
-        console.error('Login error:', err);
-        document.getElementById('networkErrorBox').style.display = 'block';
-    } finally {
-        document.getElementById('loginBtn').disabled = false;
-        document.getElementById('loginBtn').textContent = 'Sign In';
-    }
+    const hash = await sha256(document.getElementById('pw').value);
+    const res  = await fetch('/login', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ hash })
+    });
+    const data = await res.json();
+    if (data.ok) location.href = '/';
+    else location.href = '/login?error=1';
 }
 document.getElementById('loginBtn').addEventListener('click', doLogin);
 document.getElementById('pw').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
@@ -306,33 +228,21 @@ document.getElementById('pw').addEventListener('keydown', e => { if (e.key === '
 </body></html>`);
 });
 
-// ── Login endpoint with conditional secure cookies ────────────
 app.post('/login', (req, res) => {
     const { hash } = req.body;
     if (hash && hash.toLowerCase() === WEB_PASSWORD_HASH) {
         const token = crypto.randomBytes(32).toString('hex');
         sessions.add(token);
-        
-        // Detect if connection is secure (direct HTTPS or behind proxy)
-        const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
-        const secureFlag = isSecure ? '; Secure' : '';
-        
-        res.setHeader('Set-Cookie', `session=${token}; HttpOnly; Path=/; SameSite=Lax${secureFlag}`);
+        res.setHeader('Set-Cookie', `session=${token}; HttpOnly; Path=/; SameSite=Lax`);
         return res.json({ ok: true });
     }
     res.json({ ok: false });
 });
 
-// ── Logout endpoint with conditional secure cookies ───────────
 app.post('/logout', (req, res) => {
     const { session } = parseCookies(req);
     if (session) sessions.delete(session);
-    
-    // Detect if connection is secure (direct HTTPS or behind proxy)
-    const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
-    const secureFlag = isSecure ? '; Secure' : '';
-    
-    res.setHeader('Set-Cookie', `session=; HttpOnly; Path=/; SameSite=Lax${secureFlag}; Max-Age=0`);
+    res.setHeader('Set-Cookie', 'session=; HttpOnly; Path=/; Max-Age=0');
     res.redirect('/login');
 });
 
@@ -367,7 +277,8 @@ app.get('/', requireAuth, (req, res) => {
   .chatlog::-webkit-scrollbar{width:6px}
   .chatlog::-webkit-scrollbar-track{background:transparent}
   .chatlog::-webkit-scrollbar-thumb{background:#2a2d3e;border-radius:3px}
-  .msg{font-size:13.5px;line-height:1.5;word-break:break-word;padding:2px 0}
+  .msg{font-size:13.5px;line-height:1.5;word-break:break-word;padding:2px 0;opacity:0;animation:fadeIn 0.3s ease forwards}
+  @keyframes fadeIn{to{opacity:1}}
   .msg .time{color:#475569;font-size:11px;margin-right:6px;font-family:monospace}
   .msg .user{color:#818cf8;font-weight:600}
   .msg .text{color:#cbd5e1}
@@ -439,24 +350,64 @@ const viewerFrame   = document.getElementById('viewerFrame');
 
 const viewerUrl = location.protocol + '//' + location.hostname + ':3007';
 
-// Tab switching
-document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById(btn.dataset.target).classList.add('active');
-        if (btn.dataset.target === 'viewerPanel' && !viewerFrame.src) {
-            viewerFrame.src = viewerUrl;
-        }
-    });
-});
+// Message pacing control
+let messageQueue = [];
+let isProcessingQueue = false;
+let paceMode = 'normal'; // 'normal', 'slow', 'fast'
+let baseDelay = 100; // Base delay between messages in ms
+let lastCommandTime = 0;
 
-function fmtTime(ts) {
-    return new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+function getCurrentDelay() {
+    const now = Date.now();
+    const timeSinceCommand = now - lastCommandTime;
+    
+    if (timeSinceCommand < 3000) {
+        // Within 3 seconds of command: 50% slower (2x delay)
+        return baseDelay * 2;
+    } else if (timeSinceCommand < 6000 && messageQueue.length > 5) {
+        // 3-6 seconds after command AND backlog exists: 150% speed (0.66x delay)
+        return baseDelay * 0.66;
+    } else {
+        // Normal speed
+        return baseDelay;
+    }
 }
 
-function addMsg(entry, scroll = true) {
+function processQueue() {
+    if (isProcessingQueue || messageQueue.length === 0) return;
+    isProcessingQueue = true;
+    
+    const entry = messageQueue.shift();
+    addMsgImmediate(entry);
+    
+    // Check if we need to auto-scroll
+    const shouldScroll = log.scrollTop + log.clientHeight >= log.scrollHeight - 50;
+    
+    const delay = getCurrentDelay();
+    
+    setTimeout(() => {
+        isProcessingQueue = false;
+        if (messageQueue.length > 0) {
+            processQueue();
+        } else if (paceMode === 'fast') {
+            paceMode = 'normal'; // Return to normal when caught up
+        }
+    }, delay);
+}
+
+function queueMessage(entry) {
+    messageQueue.push(entry);
+    
+    // If this is a command sent by user, trigger slow mode
+    if (entry.type === 'sent' && entry.message.startsWith('/')) {
+        lastCommandTime = Date.now();
+        paceMode = 'slow';
+    }
+    
+    processQueue();
+}
+
+function addMsgImmediate(entry) {
     const div  = document.createElement('div');
     div.className = 'msg' +
         (entry.type === 'system' ? ' system' : '') +
@@ -474,16 +425,38 @@ function addMsg(entry, scroll = true) {
     if (entry.username) div.appendChild(user);
     div.appendChild(text);
     log.appendChild(div);
-    if (scroll) log.scrollTop = log.scrollHeight;
+    
+    // Auto-scroll if near bottom
+    if (log.scrollTop + log.clientHeight >= log.scrollHeight - 100) {
+        log.scrollTop = log.scrollHeight;
+    }
 }
 
-// Load history
+// Tab switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.target).classList.add('active');
+        if (btn.dataset.target === 'viewerPanel' && !viewerFrame.src) {
+            viewerFrame.src = viewerUrl;
+        }
+    });
+});
+
+function fmtTime(ts) {
+    return new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+
+// Load history with pacing
 fetch('/chatlog').then(r => {
     if (r.status === 401) { location.href = '/login'; return null; }
     return r.json();
 }).then(entries => {
     if (!entries) return;
-    entries.forEach(e => addMsg(e, false));
+    // Add history immediately without pacing for initial load
+    entries.forEach(e => addMsgImmediate(e));
     log.scrollTop = log.scrollHeight;
 }).catch(() => {});
 
@@ -506,7 +479,7 @@ function pollStatus() {
 pollStatus();
 setInterval(pollStatus, 5000);
 
-// SSE live chat
+// SSE live chat with pacing
 const es = new EventSource('/events');
 es.onopen  = () => {
     statusText.textContent = '• Connected';
@@ -518,26 +491,301 @@ es.onerror = () => {
     statusText.style.color = '#ef4444';
     connDot.classList.add('red');
 };
-es.onmessage = e => { try { addMsg(JSON.parse(e.data)); } catch(_){} };
+es.onmessage = e => { 
+    try { 
+        const entry = JSON.parse(e.data);
+        queueMessage(entry);
+    } catch(_){} 
+};
 
-// Send message
+// Send message with pacing trigger
 async function sendMessage() {
     const msg = input.value.trim();
     if (!msg) return;
     input.value     = '';
     sendBtn.disabled = true;
+    
+    // Trigger slow mode immediately when sending command
+    if (msg.startsWith('/')) {
+        lastCommandTime = Date.now();
+        paceMode = 'slow';
+    }
+    
     try {
         const res  = await fetch('/send', {
             method:  'POST',
             headers: {'Content-Type':'application/json'},
             body:    JSON.stringify({ message: msg })
         });
- });
         if (res.status === 401) { location.href = '/login'; return; }
         const data = await res.json();
-        if (!data.ok) addMsg({ ts: Date.now(), type: 'system', message: '⚠ ' + (data.error || 'Failed to send') });
+        if (!data.ok) queueMessage({ ts: Date.now(), type: 'system', message: '⚠ ' + (data.error || 'Failed to send') });
     } catch (err) {
-        addMsg({ ts: Date.now(), type: 'system', message: '⚠ Network error: ' + err.message });
+        queueMessage({ ts: Date.now(), type: 'system', message: '⚠ Network error: ' + err600;color:#e2e8f0;display:flex;align-items:center;gap:10px}
+  .dot{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e;animation:pulse 2s infinite;flex-shrink:0}
+  .dot.red{background:#ef4444;box-shadow:0 0 6px #ef4444}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .status{font-size:12px;color:#64748b;font-weight:400;margin-left:4px}
+  .hdr-right{display:flex;align-items:center;gap:10px}
+  .bot-info{font-size:12px;color:#64748b}
+  button.logout{background:#2a2d3e;border:1px solid #3a3d4e;border-radius:7px;color:#94a3b8;cursor:pointer;font-size:13px;padding:7px 16px;transition:all .2s}
+  button.logout:hover{background:#3a3d4e;color:#e2e8f0}
+  .tabs{display:flex;gap:4px;padding:12px 24px 0;background:#1a1d2e;border-bottom:1px solid #2a2d3e;flex-shrink:0}
+  .tab-btn{background:none;border:none;border-bottom:2px solid transparent;color:#64748b;cursor:pointer;font-size:14px;font-weight:500;padding:8px 16px 10px;transition:all .2s}
+  .tab-btn:hover{color:#e2e8f0}
+  .tab-btn.active{border-bottom-color:#6366f1;color:#e2e8f0}
+  .panel{flex:1;display:none;flex-direction:column;padding:20px 24px;gap:16px;overflow:hidden;min-height:0}
+  .panel.active{display:flex}
+  /* Chat */
+  .chatlog{flex:1;background:#1a1d2e;border:1px solid #2a2d3e;border-radius:10px;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:4px;min-height:0}
+  .chatlog::-webkit-scrollbar{width:6px}
+  .chatlog::-webkit-scrollbar-track{background:transparent}
+  .chatlog::-webkit-scrollbar-thumb{background:#2a2d3e;border-radius:3px}
+  .msg{font-size:13.5px;line-height:1.5;word-break:break-word;padding:2px 0;opacity:0;animation:fadeIn 0.3s ease forwards}
+  @keyframes fadeIn{to{opacity:1}}
+  .msg .time{color:#475569;font-size:11px;margin-right:6px;font-family:monospace}
+  .msg .user{color:#818cf8;font-weight:600}
+  .msg .text{color:#cbd5e1}
+  .msg.system .text{color:#64748b;font-style:italic}
+  .msg.sent .user{color:#34d399}
+  .send-row{display:flex;gap:10px;flex-shrink:0}
+  .send-row input{flex:1;background:#1a1d2e;border:1px solid #2a2d3e;border-radius:8px;color:#e2e8f0;font-size:14px;padding:11px 14px;outline:none;transition:border .2s}
+  .send-row input:focus{border-color:#6366f1}
+  .send-row button{background:#6366f1;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:14px;font-weight:600;padding:11px 22px;transition:background .2s;white-space:nowrap}
+  .send-row button:hover{background:#4f46e5}
+  .send-row button:disabled{background:#2a2d3e;color:#475569;cursor:not-allowed}
+  /* Viewer */
+  .viewer-wrap{flex:1;display:flex;flex-direction:column;gap:12px;min-height:0}
+  .viewer-controls{display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap}
+  .view-toggle{background:#2a2d3e;border:1px solid #3a3d4e;border-radius:8px;color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:500;padding:8px 18px;transition:all .2s}
+  .view-toggle:hover{background:#3a3d4e}
+  .view-toggle:disabled{opacity:.5;cursor:not-allowed}
+  .view-label{font-size:13px;color:#64748b}
+  .viewer-frame{flex:1;border:1px solid #2a2d3e;border-radius:10px;background:#0a0c14;min-height:200px;width:100%}
+  .viewer-note{font-size:12px;color:#475569}
+</style>
+</head>
+<body>
+<header>
+  <h1>
+    <span class="dot" id="connDot"></span>
+    Minecraft Bot
+    <span class="status" id="statusText">• Connecting…</span>
+  </h1>
+  <div class="hdr-right">
+    <span class="bot-info" id="botInfo"></span>
+    <button class="logout" type="button" onclick="doLogout()">Logout</button>
+  </div>
+</header>
+<nav class="tabs">
+  <button class="tab-btn active" data-target="chatPanel">💬 Chat</button>
+  <button class="tab-btn" data-target="viewerPanel">🎮 Viewer</button>
+</nav>
+
+<div id="chatPanel" class="panel active">
+  <div class="chatlog" id="log"></div>
+  <div class="send-row">
+    <input type="text" id="msgInput" placeholder="Type a message or /command…" autofocus>
+    <button id="sendBtn">Send</button>
+  </div>
+</div>
+
+<div id="viewerPanel" class="panel">
+  <div class="viewer-wrap">
+    <div class="viewer-controls">
+      <button class="view-toggle" id="toggleViewBtn">Switch to First Person</button>
+      <span class="view-label" id="viewLabel">Current: Third Person</span>
+      <span class="viewer-note">Viewer runs on port 3007</span>
+    </div>
+    <iframe class="viewer-frame" id="viewerFrame" src="" allowfullscreen></iframe>
+  </div>
+</div>
+
+<script>
+const log           = document.getElementById('log');
+const input         = document.getElementById('msgInput');
+const sendBtn       = document.getElementById('sendBtn');
+const statusText    = document.getElementById('statusText');
+const connDot       = document.getElementById('connDot');
+const botInfo       = document.getElementById('botInfo');
+const toggleViewBtn = document.getElementById('toggleViewBtn');
+const viewLabel     = document.getElementById('viewLabel');
+const viewerFrame   = document.getElementById('viewerFrame');
+
+const viewerUrl = location.protocol + '//' + location.hostname + ':3007';
+
+// Message pacing control
+let messageQueue = [];
+let isProcessingQueue = false;
+let paceMode = 'normal'; // 'normal', 'slow', 'fast'
+let baseDelay = 100; // Base delay between messages in ms
+let lastCommandTime = 0;
+
+function getCurrentDelay() {
+    const now = Date.now();
+    const timeSinceCommand = now - lastCommandTime;
+    
+    if (timeSinceCommand < 3000) {
+        // Within 3 seconds of command: 50% slower (2x delay)
+        return baseDelay * 2;
+    } else if (timeSinceCommand < 6000 && messageQueue.length > 5) {
+        // 3-6 seconds after command AND backlog exists: 150% speed (0.66x delay)
+        return baseDelay * 0.66;
+    } else {
+        // Normal speed
+        return baseDelay;
+    }
+}
+
+function processQueue() {
+    if (isProcessingQueue || messageQueue.length === 0) return;
+    isProcessingQueue = true;
+    
+    const entry = messageQueue.shift();
+    addMsgImmediate(entry);
+    
+    // Check if we need to auto-scroll
+    const shouldScroll = log.scrollTop + log.clientHeight >= log.scrollHeight - 50;
+    
+    const delay = getCurrentDelay();
+    
+    setTimeout(() => {
+        isProcessingQueue = false;
+        if (messageQueue.length > 0) {
+            processQueue();
+        } else if (paceMode === 'fast') {
+            paceMode = 'normal'; // Return to normal when caught up
+        }
+    }, delay);
+}
+
+function queueMessage(entry) {
+    messageQueue.push(entry);
+    
+    // If this is a command sent by user, trigger slow mode
+    if (entry.type === 'sent' && entry.message.startsWith('/')) {
+        lastCommandTime = Date.now();
+        paceMode = 'slow';
+    }
+    
+    processQueue();
+}
+
+function addMsgImmediate(entry) {
+    const div  = document.createElement('div');
+    div.className = 'msg' +
+        (entry.type === 'system' ? ' system' : '') +
+        (entry.type === 'sent'   ? ' sent'   : '');
+    const time = document.createElement('span');
+    time.className   = 'time';
+    time.textContent = fmtTime(entry.ts);
+    const user = document.createElement('span');
+    user.className   = 'user';
+    user.textContent = entry.username ? '<' + entry.username + '> ' : '';
+    const text = document.createElement('span');
+    text.className   = 'text';
+    text.textContent = entry.message;
+    div.appendChild(time);
+    if (entry.username) div.appendChild(user);
+    div.appendChild(text);
+    log.appendChild(div);
+    
+    // Auto-scroll if near bottom
+    if (log.scrollTop + log.clientHeight >= log.scrollHeight - 100) {
+        log.scrollTop = log.scrollHeight;
+    }
+}
+
+// Tab switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.target).classList.add('active');
+        if (btn.dataset.target === 'viewerPanel' && !viewerFrame.src) {
+            viewerFrame.src = viewerUrl;
+        }
+    });
+});
+
+function fmtTime(ts) {
+    return new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+
+// Load history with pacing
+fetch('/chatlog').then(r => {
+    if (r.status === 401) { location.href = '/login'; return null; }
+    return r.json();
+}).then(entries => {
+    if (!entries) return;
+    // Add history immediately without pacing for initial load
+    entries.forEach(e => addMsgImmediate(e));
+    log.scrollTop = log.scrollHeight;
+}).catch(() => {});
+
+// Status polling (every 5 s)
+function pollStatus() {
+    fetch('/status').then(r => r.json()).then(d => {
+        if (d.connected) {
+            statusText.textContent = '• Connected';
+            statusText.style.color = '#22c55e';
+            connDot.classList.remove('red');
+            botInfo.textContent    = d.username ? d.username + ' @ ' + d.server : '';
+        } else {
+            statusText.textContent = '• Disconnected';
+            statusText.style.color = '#ef4444';
+            connDot.classList.add('red');
+            botInfo.textContent    = '';
+        }
+    }).catch(() => {});
+}
+pollStatus();
+setInterval(pollStatus, 5000);
+
+// SSE live chat with pacing
+const es = new EventSource('/events');
+es.onopen  = () => {
+    statusText.textContent = '• Connected';
+    statusText.style.color = '#22c55e';
+    connDot.classList.remove('red');
+};
+es.onerror = () => {
+    statusText.textContent = '• Disconnected';
+    statusText.style.color = '#ef4444';
+    connDot.classList.add('red');
+};
+es.onmessage = e => { 
+    try { 
+        const entry = JSON.parse(e.data);
+        queueMessage(entry);
+    } catch(_){} 
+};
+
+// Send message with pacing trigger
+async function sendMessage() {
+    const msg = input.value.trim();
+    if (!msg) return;
+    input.value     = '';
+    sendBtn.disabled = true;
+    
+    // Trigger slow mode immediately when sending command
+    if (msg.startsWith('/')) {
+        lastCommandTime = Date.now();
+        paceMode = 'slow';
+    }
+    
+    try {
+        const res  = await fetch('/send', {
+            method:  'POST',
+            headers: {'Content-Type':'application/json'},
+            body:    JSON.stringify({ message: msg })
+        });
+        if (res.status === 401) { location.href = '/login'; return; }
+        const data = await res.json();
+        if (!data.ok) queueMessage({ ts: Date.now(), type: 'system', message: '⚠ ' + (data.error || 'Failed to send') });
+    } catch (err) {
+        queueMessage({ ts: Date.now(), type: 'system', message: '⚠ Network error: ' + err.message });
     } finally {
         sendBtn.disabled = false;
         input.focus();
@@ -633,12 +881,7 @@ app.post('/toggle-view', requireAuth, (_req, res) => {
 app.post('/logout', (req, res) => {
     const { session } = parseCookies(req);
     if (session) sessions.delete(session);
-    
-    // Detect if connection is secure (direct HTTPS or behind proxy)
-    const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
-    const secureFlag = isSecure ? '; Secure' : '';
-    
-    res.setHeader('Set-Cookie', `session=; HttpOnly; Path=/; SameSite=Lax${secureFlag}; Max-Age=0`);
+    res.setHeader('Set-Cookie', 'session=; HttpOnly; Path=/; Max-Age=0');
     // Support both JSON and redirect callers
     if (req.headers.accept && req.headers.accept.includes('application/json')) {
         return res.json({ ok: true });
