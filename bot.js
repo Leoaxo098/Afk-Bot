@@ -277,8 +277,7 @@ app.get('/', requireAuth, (req, res) => {
   .chatlog::-webkit-scrollbar{width:6px}
   .chatlog::-webkit-scrollbar-track{background:transparent}
   .chatlog::-webkit-scrollbar-thumb{background:#2a2d3e;border-radius:3px}
-  .msg{font-size:13.5px;line-height:1.5;word-break:break-word;padding:2px 0;opacity:0;animation:fadeIn 0.3s ease forwards}
-  @keyframes fadeIn{to{opacity:1}}
+  .msg{font-size:13.5px;line-height:1.5;word-break:break-word;padding:2px 0}
   .msg .time{color:#475569;font-size:11px;margin-right:6px;font-family:monospace}
   .msg .user{color:#818cf8;font-weight:600}
   .msg .text{color:#cbd5e1}
@@ -353,23 +352,19 @@ const viewerUrl = location.protocol + '//' + location.hostname + ':3007';
 // Message pacing control
 let messageQueue = [];
 let isProcessingQueue = false;
-let paceMode = 'normal'; // 'normal', 'slow', 'fast'
-let baseDelay = 100; // Base delay between messages in ms
 let lastCommandTime = 0;
+let baseDelay = 100;
 
 function getCurrentDelay() {
     const now = Date.now();
     const timeSinceCommand = now - lastCommandTime;
     
     if (timeSinceCommand < 3000) {
-        // Within 3 seconds of command: 50% slower (2x delay)
-        return baseDelay * 2;
-    } else if (timeSinceCommand < 6000 && messageQueue.length > 5) {
-        // 3-6 seconds after command AND backlog exists: 150% speed (0.66x delay)
-        return baseDelay * 0.66;
+        return baseDelay * 2; // 50% slower (200ms)
+    } else if (timeSinceCommand < 6000 && messageQueue.length > 3) {
+        return baseDelay * 0.66; // 150% faster (66ms)
     } else {
-        // Normal speed
-        return baseDelay;
+        return baseDelay; // Normal (100ms)
     }
 }
 
@@ -378,58 +373,24 @@ function processQueue() {
     isProcessingQueue = true;
     
     const entry = messageQueue.shift();
-    addMsgImmediate(entry);
-    
-    // Check if we need to auto-scroll
-    const shouldScroll = log.scrollTop + log.clientHeight >= log.scrollHeight - 50;
+    addMsg(entry, false);
     
     const delay = getCurrentDelay();
     
     setTimeout(() => {
         isProcessingQueue = false;
-        if (messageQueue.length > 0) {
-            processQueue();
-        } else if (paceMode === 'fast') {
-            paceMode = 'normal'; // Return to normal when caught up
-        }
+        processQueue();
     }, delay);
 }
 
 function queueMessage(entry) {
     messageQueue.push(entry);
     
-    // If this is a command sent by user, trigger slow mode
-    if (entry.type === 'sent' && entry.message.startsWith('/')) {
+    if (entry.type === 'sent' && entry.message && entry.message.startsWith('/')) {
         lastCommandTime = Date.now();
-        paceMode = 'slow';
     }
     
     processQueue();
-}
-
-function addMsgImmediate(entry) {
-    const div  = document.createElement('div');
-    div.className = 'msg' +
-        (entry.type === 'system' ? ' system' : '') +
-        (entry.type === 'sent'   ? ' sent'   : '');
-    const time = document.createElement('span');
-    time.className   = 'time';
-    time.textContent = fmtTime(entry.ts);
-    const user = document.createElement('span');
-    user.className   = 'user';
-    user.textContent = entry.username ? '<' + entry.username + '> ' : '';
-    const text = document.createElement('span');
-    text.className   = 'text';
-    text.textContent = entry.message;
-    div.appendChild(time);
-    if (entry.username) div.appendChild(user);
-    div.appendChild(text);
-    log.appendChild(div);
-    
-    // Auto-scroll if near bottom
-    if (log.scrollTop + log.clientHeight >= log.scrollHeight - 100) {
-        log.scrollTop = log.scrollHeight;
-    }
 }
 
 // Tab switching
@@ -449,14 +410,34 @@ function fmtTime(ts) {
     return new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
 }
 
-// Load history with pacing
+function addMsg(entry, scroll = true) {
+    const div  = document.createElement('div');
+    div.className = 'msg' +
+        (entry.type === 'system' ? ' system' : '') +
+        (entry.type === 'sent'   ? ' sent'   : '');
+    const time = document.createElement('span');
+    time.className   = 'time';
+    time.textContent = fmtTime(entry.ts);
+    const user = document.createElement('span');
+    user.className   = 'user';
+    user.textContent = entry.username ? '<' + entry.username + '> ' : '';
+    const text = document.createElement('span');
+    text.className   = 'text';
+    text.textContent = entry.message;
+    div.appendChild(time);
+    if (entry.username) div.appendChild(user);
+    div.appendChild(text);
+    log.appendChild(div);
+    if (scroll) log.scrollTop = log.scrollHeight;
+}
+
+// Load history
 fetch('/chatlog').then(r => {
     if (r.status === 401) { location.href = '/login'; return null; }
     return r.json();
 }).then(entries => {
     if (!entries) return;
-    // Add history immediately without pacing for initial load
-    entries.forEach(e => addMsgImmediate(e));
+    entries.forEach(e => addMsg(e, false));
     log.scrollTop = log.scrollHeight;
 }).catch(() => {});
 
@@ -479,7 +460,7 @@ function pollStatus() {
 pollStatus();
 setInterval(pollStatus, 5000);
 
-// SSE live chat with pacing
+// SSE live chat
 const es = new EventSource('/events');
 es.onopen  = () => {
     statusText.textContent = '• Connected';
@@ -498,281 +479,15 @@ es.onmessage = e => {
     } catch(_){} 
 };
 
-// Send message with pacing trigger
+// Send message
 async function sendMessage() {
     const msg = input.value.trim();
     if (!msg) return;
     input.value     = '';
     sendBtn.disabled = true;
     
-    // Trigger slow mode immediately when sending command
     if (msg.startsWith('/')) {
         lastCommandTime = Date.now();
-        paceMode = 'slow';
-    }
-    
-    try {
-        const res  = await fetch('/send', {
-            method:  'POST',
-            headers: {'Content-Type':'application/json'},
-            body:    JSON.stringify({ message: msg })
-        });
-        if (res.status === 401) { location.href = '/login'; return; }
-        const data = await res.json();
-        if (!data.ok) queueMessage({ ts: Date.now(), type: 'system', message: '⚠ ' + (data.error || 'Failed to send') });
-    } catch (err) {
-        queueMessage({ ts: Date.now(), type: 'system', message: '⚠ Network error: ' + err600;color:#e2e8f0;display:flex;align-items:center;gap:10px}
-  .dot{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e;animation:pulse 2s infinite;flex-shrink:0}
-  .dot.red{background:#ef4444;box-shadow:0 0 6px #ef4444}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-  .status{font-size:12px;color:#64748b;font-weight:400;margin-left:4px}
-  .hdr-right{display:flex;align-items:center;gap:10px}
-  .bot-info{font-size:12px;color:#64748b}
-  button.logout{background:#2a2d3e;border:1px solid #3a3d4e;border-radius:7px;color:#94a3b8;cursor:pointer;font-size:13px;padding:7px 16px;transition:all .2s}
-  button.logout:hover{background:#3a3d4e;color:#e2e8f0}
-  .tabs{display:flex;gap:4px;padding:12px 24px 0;background:#1a1d2e;border-bottom:1px solid #2a2d3e;flex-shrink:0}
-  .tab-btn{background:none;border:none;border-bottom:2px solid transparent;color:#64748b;cursor:pointer;font-size:14px;font-weight:500;padding:8px 16px 10px;transition:all .2s}
-  .tab-btn:hover{color:#e2e8f0}
-  .tab-btn.active{border-bottom-color:#6366f1;color:#e2e8f0}
-  .panel{flex:1;display:none;flex-direction:column;padding:20px 24px;gap:16px;overflow:hidden;min-height:0}
-  .panel.active{display:flex}
-  /* Chat */
-  .chatlog{flex:1;background:#1a1d2e;border:1px solid #2a2d3e;border-radius:10px;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:4px;min-height:0}
-  .chatlog::-webkit-scrollbar{width:6px}
-  .chatlog::-webkit-scrollbar-track{background:transparent}
-  .chatlog::-webkit-scrollbar-thumb{background:#2a2d3e;border-radius:3px}
-  .msg{font-size:13.5px;line-height:1.5;word-break:break-word;padding:2px 0;opacity:0;animation:fadeIn 0.3s ease forwards}
-  @keyframes fadeIn{to{opacity:1}}
-  .msg .time{color:#475569;font-size:11px;margin-right:6px;font-family:monospace}
-  .msg .user{color:#818cf8;font-weight:600}
-  .msg .text{color:#cbd5e1}
-  .msg.system .text{color:#64748b;font-style:italic}
-  .msg.sent .user{color:#34d399}
-  .send-row{display:flex;gap:10px;flex-shrink:0}
-  .send-row input{flex:1;background:#1a1d2e;border:1px solid #2a2d3e;border-radius:8px;color:#e2e8f0;font-size:14px;padding:11px 14px;outline:none;transition:border .2s}
-  .send-row input:focus{border-color:#6366f1}
-  .send-row button{background:#6366f1;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:14px;font-weight:600;padding:11px 22px;transition:background .2s;white-space:nowrap}
-  .send-row button:hover{background:#4f46e5}
-  .send-row button:disabled{background:#2a2d3e;color:#475569;cursor:not-allowed}
-  /* Viewer */
-  .viewer-wrap{flex:1;display:flex;flex-direction:column;gap:12px;min-height:0}
-  .viewer-controls{display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap}
-  .view-toggle{background:#2a2d3e;border:1px solid #3a3d4e;border-radius:8px;color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:500;padding:8px 18px;transition:all .2s}
-  .view-toggle:hover{background:#3a3d4e}
-  .view-toggle:disabled{opacity:.5;cursor:not-allowed}
-  .view-label{font-size:13px;color:#64748b}
-  .viewer-frame{flex:1;border:1px solid #2a2d3e;border-radius:10px;background:#0a0c14;min-height:200px;width:100%}
-  .viewer-note{font-size:12px;color:#475569}
-</style>
-</head>
-<body>
-<header>
-  <h1>
-    <span class="dot" id="connDot"></span>
-    Minecraft Bot
-    <span class="status" id="statusText">• Connecting…</span>
-  </h1>
-  <div class="hdr-right">
-    <span class="bot-info" id="botInfo"></span>
-    <button class="logout" type="button" onclick="doLogout()">Logout</button>
-  </div>
-</header>
-<nav class="tabs">
-  <button class="tab-btn active" data-target="chatPanel">💬 Chat</button>
-  <button class="tab-btn" data-target="viewerPanel">🎮 Viewer</button>
-</nav>
-
-<div id="chatPanel" class="panel active">
-  <div class="chatlog" id="log"></div>
-  <div class="send-row">
-    <input type="text" id="msgInput" placeholder="Type a message or /command…" autofocus>
-    <button id="sendBtn">Send</button>
-  </div>
-</div>
-
-<div id="viewerPanel" class="panel">
-  <div class="viewer-wrap">
-    <div class="viewer-controls">
-      <button class="view-toggle" id="toggleViewBtn">Switch to First Person</button>
-      <span class="view-label" id="viewLabel">Current: Third Person</span>
-      <span class="viewer-note">Viewer runs on port 3007</span>
-    </div>
-    <iframe class="viewer-frame" id="viewerFrame" src="" allowfullscreen></iframe>
-  </div>
-</div>
-
-<script>
-const log           = document.getElementById('log');
-const input         = document.getElementById('msgInput');
-const sendBtn       = document.getElementById('sendBtn');
-const statusText    = document.getElementById('statusText');
-const connDot       = document.getElementById('connDot');
-const botInfo       = document.getElementById('botInfo');
-const toggleViewBtn = document.getElementById('toggleViewBtn');
-const viewLabel     = document.getElementById('viewLabel');
-const viewerFrame   = document.getElementById('viewerFrame');
-
-const viewerUrl = location.protocol + '//' + location.hostname + ':3007';
-
-// Message pacing control
-let messageQueue = [];
-let isProcessingQueue = false;
-let paceMode = 'normal'; // 'normal', 'slow', 'fast'
-let baseDelay = 100; // Base delay between messages in ms
-let lastCommandTime = 0;
-
-function getCurrentDelay() {
-    const now = Date.now();
-    const timeSinceCommand = now - lastCommandTime;
-    
-    if (timeSinceCommand < 3000) {
-        // Within 3 seconds of command: 50% slower (2x delay)
-        return baseDelay * 2;
-    } else if (timeSinceCommand < 6000 && messageQueue.length > 5) {
-        // 3-6 seconds after command AND backlog exists: 150% speed (0.66x delay)
-        return baseDelay * 0.66;
-    } else {
-        // Normal speed
-        return baseDelay;
-    }
-}
-
-function processQueue() {
-    if (isProcessingQueue || messageQueue.length === 0) return;
-    isProcessingQueue = true;
-    
-    const entry = messageQueue.shift();
-    addMsgImmediate(entry);
-    
-    // Check if we need to auto-scroll
-    const shouldScroll = log.scrollTop + log.clientHeight >= log.scrollHeight - 50;
-    
-    const delay = getCurrentDelay();
-    
-    setTimeout(() => {
-        isProcessingQueue = false;
-        if (messageQueue.length > 0) {
-            processQueue();
-        } else if (paceMode === 'fast') {
-            paceMode = 'normal'; // Return to normal when caught up
-        }
-    }, delay);
-}
-
-function queueMessage(entry) {
-    messageQueue.push(entry);
-    
-    // If this is a command sent by user, trigger slow mode
-    if (entry.type === 'sent' && entry.message.startsWith('/')) {
-        lastCommandTime = Date.now();
-        paceMode = 'slow';
-    }
-    
-    processQueue();
-}
-
-function addMsgImmediate(entry) {
-    const div  = document.createElement('div');
-    div.className = 'msg' +
-        (entry.type === 'system' ? ' system' : '') +
-        (entry.type === 'sent'   ? ' sent'   : '');
-    const time = document.createElement('span');
-    time.className   = 'time';
-    time.textContent = fmtTime(entry.ts);
-    const user = document.createElement('span');
-    user.className   = 'user';
-    user.textContent = entry.username ? '<' + entry.username + '> ' : '';
-    const text = document.createElement('span');
-    text.className   = 'text';
-    text.textContent = entry.message;
-    div.appendChild(time);
-    if (entry.username) div.appendChild(user);
-    div.appendChild(text);
-    log.appendChild(div);
-    
-    // Auto-scroll if near bottom
-    if (log.scrollTop + log.clientHeight >= log.scrollHeight - 100) {
-        log.scrollTop = log.scrollHeight;
-    }
-}
-
-// Tab switching
-document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById(btn.dataset.target).classList.add('active');
-        if (btn.dataset.target === 'viewerPanel' && !viewerFrame.src) {
-            viewerFrame.src = viewerUrl;
-        }
-    });
-});
-
-function fmtTime(ts) {
-    return new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-}
-
-// Load history with pacing
-fetch('/chatlog').then(r => {
-    if (r.status === 401) { location.href = '/login'; return null; }
-    return r.json();
-}).then(entries => {
-    if (!entries) return;
-    // Add history immediately without pacing for initial load
-    entries.forEach(e => addMsgImmediate(e));
-    log.scrollTop = log.scrollHeight;
-}).catch(() => {});
-
-// Status polling (every 5 s)
-function pollStatus() {
-    fetch('/status').then(r => r.json()).then(d => {
-        if (d.connected) {
-            statusText.textContent = '• Connected';
-            statusText.style.color = '#22c55e';
-            connDot.classList.remove('red');
-            botInfo.textContent    = d.username ? d.username + ' @ ' + d.server : '';
-        } else {
-            statusText.textContent = '• Disconnected';
-            statusText.style.color = '#ef4444';
-            connDot.classList.add('red');
-            botInfo.textContent    = '';
-        }
-    }).catch(() => {});
-}
-pollStatus();
-setInterval(pollStatus, 5000);
-
-// SSE live chat with pacing
-const es = new EventSource('/events');
-es.onopen  = () => {
-    statusText.textContent = '• Connected';
-    statusText.style.color = '#22c55e';
-    connDot.classList.remove('red');
-};
-es.onerror = () => {
-    statusText.textContent = '• Disconnected';
-    statusText.style.color = '#ef4444';
-    connDot.classList.add('red');
-};
-es.onmessage = e => { 
-    try { 
-        const entry = JSON.parse(e.data);
-        queueMessage(entry);
-    } catch(_){} 
-};
-
-// Send message with pacing trigger
-async function sendMessage() {
-    const msg = input.value.trim();
-    if (!msg) return;
-    input.value     = '';
-    sendBtn.disabled = true;
-    
-    // Trigger slow mode immediately when sending command
-    if (msg.startsWith('/')) {
-        lastCommandTime = Date.now();
-        paceMode = 'slow';
     }
     
     try {
