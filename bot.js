@@ -16,6 +16,13 @@ const loggers     = require('./logging.js');
 
 const logger = loggers.logger;
 
+// ── Shard Stats State ──────────────────────────────────────
+let latestShardStats = {
+    shards: null,
+    lastUpdate: null,
+    isChecking: false
+};
+
 // ── Viewer state ────────────────────────────────────────────
 let viewerFirstPerson = false;
 let viewerServer      = null;
@@ -117,6 +124,87 @@ function startScoreboardReporter(bot) {
     }, intervalMs);
 }
 
+// ── Shard Monitor ───────────────────────────────────────────
+function startShardMonitor(bot) {
+    if (process.env.SHARD_CHECK_ENABLED !== 'true') return;
+    
+    const intervalMs = parseInt(process.env.SHARD_CHECK_INTERVAL_MS) || 30000; // Default 30 seconds
+    const webhookUrl = process.env.SHARD_WEBHOOK_URL || process.env.WEBHOOK_URL;
+    
+    logger.info(`Shard monitor started (every ${intervalMs}ms)`);
+    
+    // Set up message listener for shard responses
+    let awaitingShardResponse = false;
+    let lastCommandTime = 0;
+    
+    bot.on('message', (jsonMsg) => {
+        const text = jsonMsg.toString().replace(/§./g, '').trim();
+        if (!text) return;
+        
+        // Parse "Your shards: X.XX" format
+        const shardMatch = text.match(/Your shards:\s*([\d.,]+[KMB]?)/i);
+        if (shardMatch && awaitingShardResponse) {
+            const shardValue = shardMatch[1];
+            const now = Date.now();
+            const responseTime = now - lastCommandTime;
+            
+            latestShardStats = {
+                shards: shardValue,
+                lastUpdate: now,
+                isChecking: false,
+                responseTimeMs: responseTime
+            };
+            
+            awaitingShardResponse = false;
+            
+            // Push to dashboard
+            pushChatEntry({ 
+                ts: now, 
+                type: 'system', 
+                message: `📊 Shard Check: ${shardValue} (took ${responseTime}ms)` 
+            });
+            
+            // Send to webhook if configured
+            if (webhookUrl) {
+                const webhookMessage = `**Shard Update**\nShards: \`${shardValue}\`\nBot: \`${bot.username}\`\nServer: \`${process.env.SERVER_IP}\`\nCheck took: ${responseTime}ms`;
+                postToWebhook(webhookUrl, webhookMessage);
+                logger.info(`Shard stats sent to webhook: ${shardValue}`);
+            }
+            
+            logger.info(`Shard check complete: ${shardValue}`);
+        }
+    });
+    
+    // Periodic check
+    setInterval(() => {
+        if (!bot || !bot.entity) return;
+        
+        try {
+            latestShardStats.isChecking = true;
+            lastCommandTime = Date.now();
+            awaitingShardResponse = true;
+            
+            bot.chat('/shard');
+            logger.info('Sent /shard command');
+            
+            // Timeout if no response in 5 seconds
+            setTimeout(() => {
+                if (awaitingShardResponse) {
+                    awaitingShardResponse = false;
+                    latestShardStats.isChecking = false;
+                    latestShardStats.lastUpdate = Date.now();
+                    logger.warn('Shard check timed out (no response)');
+                }
+            }, 5000);
+            
+        } catch (err) {
+            logger.error(`Shard check error: ${err.message}`);
+            latestShardStats.isChecking = false;
+            awaitingShardResponse = false;
+        }
+    }, intervalMs);
+}
+
 // ── Express / dashboard ──────────────────────────────────────
 const app  = express();
 const port = process.env.PORT || 3000;
@@ -158,7 +246,7 @@ function requireAuth(req, res, next) {
     const isApi =
         (req.headers.accept && req.headers.accept.includes('application/json')) ||
         (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) ||
-        ['/send', '/chatlog', '/events', '/toggle-view', '/status'].includes(req.path);
+        ['/send', '/chatlog', '/events', '/toggle-view', '/status', '/shard-stats'].includes(req.path);
     if (isApi) return res.status(401).json({ ok: false, error: 'Not authenticated' });
     res.redirect('/login');
 }
@@ -298,6 +386,14 @@ app.get('/', requireAuth, (req, res) => {
   .view-label{font-size:13px;color:#64748b}
   .viewer-frame{flex:1;border:1px solid #2a2d3e;border-radius:10px;background:#0a0c14;min-height:200px;width:100%}
   .viewer-note{font-size:12px;color:#475569}
+  /* Stats Panel */
+  .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:16px}
+  .stat-card{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:10px;padding:16px}
+  .stat-label{color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px}
+  .stat-value{color:#e2e8f0;font-size:24px;font-weight:600;font-family:monospace}
+  .stat-sub{color:#475569;font-size:11px;margin-top:4px}
+  .shard-value{color:#fbbf24}
+  .checking{animation:pulse 1.5s infinite}
 </style>
 </head>
 <body>
@@ -314,6 +410,7 @@ app.get('/', requireAuth, (req, res) => {
 </header>
 <nav class="tabs">
   <button class="tab-btn active" data-target="chatPanel">💬 Chat</button>
+  <button class="tab-btn" data-target="statsPanel">📊 Stats</button>
   <button class="tab-btn" data-target="viewerPanel">🎮 Viewer</button>
 </nav>
 
@@ -322,6 +419,29 @@ app.get('/', requireAuth, (req, res) => {
   <div class="send-row">
     <input type="text" id="msgInput" placeholder="Type a message or /command…" autofocus>
     <button id="sendBtn">Send</button>
+  </div>
+</div>
+
+<div id="statsPanel" class="panel">
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">💎 Shards</div>
+      <div class="stat-value shard-value" id="shardValue">--</div>
+      <div class="stat-sub" id="shardUpdate">Never checked</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">⏱️ Check Interval</div>
+      <div class="stat-value" id="shardInterval">--</div>
+      <div class="stat-sub">milliseconds</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">🔌 Bot Status</div>
+      <div class="stat-value" id="botStatusValue">--</div>
+      <div class="stat-sub" id="botStatusSub">Unknown</div>
+    </div>
+  </div>
+  <div class="send-row">
+    <button id="checkShardBtn" style="flex:1">🔄 Check Shards Now</button>
   </div>
 </div>
 
@@ -346,6 +466,12 @@ const botInfo       = document.getElementById('botInfo');
 const toggleViewBtn = document.getElementById('toggleViewBtn');
 const viewLabel     = document.getElementById('viewLabel');
 const viewerFrame   = document.getElementById('viewerFrame');
+const shardValue    = document.getElementById('shardValue');
+const shardUpdate   = document.getElementById('shardUpdate');
+const shardInterval = document.getElementById('shardInterval');
+const botStatusValue= document.getElementById('botStatusValue');
+const botStatusSub  = document.getElementById('botStatusSub');
+const checkShardBtn = document.getElementById('checkShardBtn');
 
 const viewerUrl = location.protocol + '//' + location.hostname + ':3007';
 
@@ -360,11 +486,11 @@ function getCurrentDelay() {
     const timeSinceCommand = now - lastCommandTime;
     
     if (timeSinceCommand < 3000) {
-        return baseDelay * 2; // 50% slower (200ms)
+        return baseDelay * 2;
     } else if (timeSinceCommand < 6000 && messageQueue.length > 3) {
-        return baseDelay * 0.66; // 150% faster (66ms)
+        return baseDelay * 0.66;
     } else {
-        return baseDelay; // Normal (100ms)
+        return baseDelay;
     }
 }
 
@@ -403,11 +529,22 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         if (btn.dataset.target === 'viewerPanel' && !viewerFrame.src) {
             viewerFrame.src = viewerUrl;
         }
+        if (btn.dataset.target === 'statsPanel') {
+            updateStats();
+        }
     });
 });
 
 function fmtTime(ts) {
     return new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+
+function formatTimeAgo(ts) {
+    if (!ts) return 'Never';
+    const seconds = Math.floor((Date.now() - ts) / 1000);
+    if (seconds < 60) return \`\${seconds}s ago\`;
+    if (seconds < 3600) return \`\${Math.floor(seconds/60)}m ago\`;
+    return \`\${Math.floor(seconds/3600)}h ago\`;
 }
 
 function addMsg(entry, scroll = true) {
@@ -441,7 +578,7 @@ fetch('/chatlog').then(r => {
     log.scrollTop = log.scrollHeight;
 }).catch(() => {});
 
-// Status polling (every 5 s)
+// Status polling
 function pollStatus() {
     fetch('/status').then(r => r.json()).then(d => {
         if (d.connected) {
@@ -449,16 +586,42 @@ function pollStatus() {
             statusText.style.color = '#22c55e';
             connDot.classList.remove('red');
             botInfo.textContent    = d.username ? d.username + ' @ ' + d.server : '';
+            botStatusValue.textContent = 'Online';
+            botStatusValue.style.color = '#22c55e';
+            botStatusSub.textContent = d.username || 'Connected';
         } else {
             statusText.textContent = '• Disconnected';
             statusText.style.color = '#ef4444';
             connDot.classList.add('red');
             botInfo.textContent    = '';
+            botStatusValue.textContent = 'Offline';
+            botStatusValue.style.color = '#ef4444';
+            botStatusSub.textContent = 'Not connected';
         }
     }).catch(() => {});
 }
 pollStatus();
 setInterval(pollStatus, 5000);
+
+// Shard stats polling
+function updateStats() {
+    fetch('/shard-stats').then(r => r.json()).then(d => {
+        if (d.shards !== null) {
+            shardValue.textContent = d.shards;
+            shardValue.classList.remove('checking');
+        } else if (d.isChecking) {
+            shardValue.textContent = 'Checking...';
+            shardValue.classList.add('checking');
+        } else {
+            shardValue.textContent = '--';
+            shardValue.classList.remove('checking');
+        }
+        shardUpdate.textContent = d.lastUpdate ? formatTimeAgo(d.lastUpdate) : 'Never checked';
+        shardInterval.textContent = d.intervalMs || '--';
+    }).catch(() => {});
+}
+updateStats();
+setInterval(updateStats, 5000);
 
 // SSE live chat
 const es = new EventSource('/events');
@@ -509,6 +672,29 @@ async function sendMessage() {
 sendBtn.addEventListener('click', sendMessage);
 input.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
 
+// Manual shard check
+checkShardBtn.addEventListener('click', async () => {
+    checkShardBtn.disabled = true;
+    shardValue.textContent = 'Checking...';
+    shardValue.classList.add('checking');
+    
+    try {
+        const res = await fetch('/send', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ message: '/shard' })
+        });
+        if (res.status === 401) { location.href = '/login'; return; }
+    } catch (err) {
+        console.error('Manual shard check failed:', err);
+    }
+    
+    setTimeout(() => {
+        checkShardBtn.disabled = false;
+        updateStats();
+    }, 3000);
+});
+
 // Toggle viewer perspective
 let isFirstPerson = false;
 toggleViewBtn.addEventListener('click', async () => {
@@ -553,6 +739,16 @@ app.get('/status', requireAuth, (_req, res) => {
     } else {
         res.json({ connected: false });
     }
+});
+
+// Shard stats endpoint
+app.get('/shard-stats', requireAuth, (_req, res) => {
+    res.json({
+        shards: latestShardStats.shards,
+        lastUpdate: latestShardStats.lastUpdate,
+        isChecking: latestShardStats.isChecking,
+        intervalMs: process.env.SHARD_CHECK_ENABLED === 'true' ? (parseInt(process.env.SHARD_CHECK_INTERVAL_MS) || 30000) : null
+    });
 });
 
 app.get('/events', requireAuth, (req, res) => {
@@ -715,6 +911,7 @@ function createBot() {
 
         startViewer(bot);
         startScoreboardReporter(bot);
+        startShardMonitor(bot); // Start shard monitoring
 
         // Auto-auth
         if (process.env.AUTO_AUTH_ENABLED === 'true') {
