@@ -568,12 +568,13 @@ function addMsg(entry, scroll = true) {
     if (scroll) log.scrollTop = log.scrollHeight;
 }
 
-// Load history
+// Load history with pacing
 fetch('/chatlog').then(r => {
     if (r.status === 401) { location.href = '/login'; return null; }
     return r.json();
 }).then(entries => {
     if (!entries) return;
+    // Add history immediately without pacing for initial load
     entries.forEach(e => addMsg(e, false));
     log.scrollTop = log.scrollHeight;
 }).catch(() => {});
